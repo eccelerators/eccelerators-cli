@@ -1,0 +1,117 @@
+namespace Eccelerators.Cli
+
+/**
+ * Tracks bounded command-line length, terminal line endings, and editing state.
+ */
+component CliLineEditor
+{
+	/**
+	 * Maximum number of printable ASCII bytes accepted in one command line.
+	 */
+	public const MAX_LINE_LENGTH: int = 64
+
+	const CARRIAGE_RETURN: byte = 0x0D
+
+	const LINE_FEED: byte = 0x0A
+
+	const BACKSPACE: byte = 0x08
+
+	const DELETE: byte = 0x7F
+
+	length: byte
+
+	complete: bool
+
+	overflow: bool
+
+	ignoreNextLineFeed: bool
+
+	/**
+	 * Accepts one byte and returns true when the byte was consumed.
+	 */
+	public fn AcceptByte(value: byte) bool
+	{
+		if (this.complete == true) { return false }
+
+		if (this.ignoreNextLineFeed == true) {
+			this.ignoreNextLineFeed = false
+
+			if (value == LINE_FEED) { return true }
+		}
+
+		if (value == CARRIAGE_RETURN) {
+			this.complete = true
+			this.ignoreNextLineFeed = true
+			return true
+		}
+
+		if (value == LINE_FEED) {
+			this.complete = true
+			return true
+		}
+
+		if (value == BACKSPACE || value == DELETE) {
+			var currentLength: int = this.length as int
+
+			if (currentLength != 0) {
+				this.length = (currentLength - 1) as byte
+			}
+
+			return true
+		}
+
+		if (value < 0x20 || value > 0x7E) { return true }
+
+		if ((this.length as int) >= MAX_LINE_LENGTH) {
+			this.overflow = true
+			return true
+		}
+
+		var nextLength: int = (this.length as int) + 1
+		this.length = nextLength as byte
+		return true
+	}
+
+	/**
+	 * Returns the number of printable bytes currently accepted for the line.
+	 */
+	public fn GetLength() int
+	{
+		return this.length as int
+	}
+
+	/**
+	 * Returns true after a supported line ending has been received.
+	 */
+	public fn IsComplete() bool
+	{
+		return this.complete
+	}
+
+	/**
+	 * Returns true when printable input exceeded the line capacity.
+	 */
+	public fn HasOverflow() bool
+	{
+		return this.overflow
+	}
+
+	/**
+	 * Clears the current line while preserving pending CRLF suppression.
+	 */
+	public fn ResetLine()
+	{
+		this.length = 0
+		this.complete = false
+		this.overflow = false
+	}
+
+	/**
+	 * Clears the current line and all line-ending state.
+	 */
+	public fn Clear()
+	{
+		this.ResetLine()
+		this.ignoreNextLineFeed = false
+	}
+}

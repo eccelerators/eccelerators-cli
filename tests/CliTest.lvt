@@ -1,0 +1,230 @@
+namespace Eccelerators.Cli.Tests
+
+using Eccelerators.Cli
+
+@Test
+component CliTest
+{
+	cli: Cli
+
+	silentCli: Cli
+
+	new()
+	{
+		this.cli = new Cli(true)
+		this.silentCli = new Cli(false)
+	}
+
+	fn WaitForPrompt()
+	{
+		assert this.cli.Service() == true
+	}
+
+	fn ConsumeExpected(value: byte)
+	{
+		assert this.cli.HasOutput() == true
+		assert this.cli.PeekOutput() == value
+		assert this.cli.ConsumeOutput() == true
+	}
+
+	fn ConsumePrompt()
+	{
+		this.ConsumeExpected(0x3E)
+		this.ConsumeExpected(0x20)
+	}
+
+	@Test
+	fn EmitsInitialPrompt()
+	{
+		this.cli.Reset()
+		this.WaitForPrompt()
+		this.ConsumePrompt()
+		assert this.cli.HasOutput() == false
+	}
+
+	@Test
+	fn AcceptsAndParsesAnEchoedCommand()
+	{
+		this.cli.Reset()
+		this.WaitForPrompt()
+		this.ConsumePrompt()
+		var line = "echo one two\n".Encode()
+
+		for (var i = 0; i < line.Length(); i++) {
+			assert this.cli.AcceptByte(line[i]) == true
+		}
+
+		assert this.cli.HasCommand() == true
+		var command = "echo".Encode()
+		var first = "one".Encode()
+		var second = "two".Encode()
+		assert this.cli.CommandEquals(command) == true
+		assert this.cli.GetArgumentCount() == 2
+		assert this.cli.ArgumentEquals(0, first) == true
+		assert this.cli.ArgumentEquals(1, second) == true
+		assert this.cli.CanAcceptByte() == false
+	}
+
+	@Test
+	fn EchoesBackspaceAsTerminalEraseSequence()
+	{
+		this.cli.Reset()
+		this.WaitForPrompt()
+		this.ConsumePrompt()
+		assert this.cli.AcceptByte(0x61) == true
+		assert this.cli.AcceptByte(0x62) == true
+		assert this.cli.AcceptByte(0x08) == true
+		this.ConsumeExpected(0x61)
+		this.ConsumeExpected(0x62)
+		this.ConsumeExpected(0x08)
+		this.ConsumeExpected(0x20)
+		this.ConsumeExpected(0x08)
+	}
+
+	@Test
+	fn QueuesResponseThenNextPrompt()
+	{
+		this.cli.Reset()
+		this.WaitForPrompt()
+		this.ConsumePrompt()
+		var line = "go\n".Encode()
+
+		for (var i = 0; i < line.Length(); i++) {
+			assert this.cli.AcceptByte(line[i]) == true
+		}
+
+		var response = "OK".Encode()
+		assert this.cli.TryWriteLine(response) == true
+		assert this.cli.CompleteCommand() == true
+		this.WaitForPrompt()
+		this.ConsumeExpected(0x67)
+		this.ConsumeExpected(0x6F)
+		this.ConsumeExpected(0x0D)
+		this.ConsumeExpected(0x0A)
+		this.ConsumeExpected(0x4F)
+		this.ConsumeExpected(0x4B)
+		this.ConsumeExpected(0x0D)
+		this.ConsumeExpected(0x0A)
+		this.ConsumePrompt()
+	}
+
+	@Test
+	fn EmptyLineSchedulesAnotherPromptWithoutCommand()
+	{
+		this.cli.Reset()
+		this.WaitForPrompt()
+		this.ConsumePrompt()
+		assert this.cli.AcceptByte(0x0A) == true
+		assert this.cli.HasCommand() == false
+		this.WaitForPrompt()
+		this.ConsumeExpected(0x0D)
+		this.ConsumeExpected(0x0A)
+		this.ConsumePrompt()
+	}
+
+	@Test
+	fn ReportsOverflowAndRecoversToPrompt()
+	{
+		this.cli.Reset()
+		this.WaitForPrompt()
+		this.ConsumePrompt()
+
+		for (var i = 0; i < CliLineEditor.MAX_LINE_LENGTH; i++) {
+			assert this.cli.AcceptByte(0x61) == true
+			this.ConsumeExpected(0x61)
+		}
+
+		assert this.cli.AcceptByte(0x62) == true
+		assert this.cli.AcceptByte(0x0A) == true
+		assert this.cli.HasCommand() == false
+		assert this.cli.GetOutputCount() == 24
+		assert this.cli.Service() == true
+		var expected = "\r\nError: line too long\r\n> ".Encode()
+
+		for (var i = 0; i < expected.Length(); i++) {
+			this.ConsumeExpected(expected[i])
+		}
+
+		assert this.cli.HasOutput() == false
+	}
+
+	@Test
+	fn WritesArgumentsAsOneLine()
+	{
+		this.cli.Reset()
+		this.WaitForPrompt()
+		this.ConsumePrompt()
+		var line = "echo one two\n".Encode()
+
+		for (var i = 0; i < line.Length(); i++) {
+			assert this.cli.AcceptByte(line[i]) == true
+		}
+
+		for (var i = 0; i < line.Length() - 1; i++) {
+			this.ConsumeExpected(line[i])
+		}
+
+		this.ConsumeExpected(0x0D)
+		this.ConsumeExpected(0x0A)
+		assert this.cli.TryWriteArgumentsLine() == true
+		var expected = "one two\r\n".Encode()
+
+		for (var i = 0; i < expected.Length(); i++) {
+			this.ConsumeExpected(expected[i])
+		}
+	}
+
+	@Test
+	fn RejectsTooManyArgumentsAndRecoversToPrompt()
+	{
+		this.cli.Reset()
+		this.WaitForPrompt()
+		this.ConsumePrompt()
+		var line = "go 1 2 3 4 5 6 7 8 9\n".Encode()
+
+		for (var i = 0; i < line.Length(); i++) {
+			assert this.cli.AcceptByte(line[i]) == true
+		}
+
+		assert this.cli.HasCommand() == false
+		assert this.cli.Service() == true
+		var expected = "go 1 2 3 4 5 6 7 8 9\r\nError: too many arguments\r\n> ".Encode()
+
+		for (var i = 0; i < expected.Length(); i++) {
+			this.ConsumeExpected(expected[i])
+		}
+
+		assert this.cli.HasOutput() == false
+	}
+
+	@Test
+	fn DisablesLocalEcho()
+	{
+		this.silentCli.Reset()
+		assert this.silentCli.Service() == true
+		assert this.silentCli.ConsumeOutput() == true
+		assert this.silentCli.ConsumeOutput() == true
+		var line = "go\n".Encode()
+
+		for (var i = 0; i < line.Length(); i++) {
+			assert this.silentCli.AcceptByte(line[i]) == true
+		}
+
+		assert this.silentCli.HasCommand() == true
+		assert this.silentCli.HasOutput() == false
+	}
+
+	@Test
+	fn AppliesAndReleasesInputBackpressure()
+	{
+		this.cli.Reset()
+		assert this.cli.Service() == true
+		var fill = "1234567890123456789012345678901".Encode()
+		assert this.cli.TryWrite(fill) == true
+		assert this.cli.CanAcceptByte() == false
+		assert this.cli.AcceptByte(0x61) == false
+		assert this.cli.ConsumeOutput() == true
+		assert this.cli.CanAcceptByte() == true
+		assert this.cli.AcceptByte(0x61) == true
+	}
+}

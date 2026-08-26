@@ -1,0 +1,200 @@
+namespace Eccelerators.Cli
+
+using Livt.IO
+
+/**
+ * Parses command and argument token spans from a completed CLI line.
+ */
+component CliParser
+{
+	/**
+	 * Maximum number of argument tokens retained after the command token.
+	 */
+	public const MAX_ARGUMENTS: int = 8
+
+	const MAX_TOKENS: int = 9
+
+	line: Ram
+
+	lineLength: byte
+
+	tokenStarts: byte[9]
+
+	tokenLengths: byte[9]
+
+	tokenCount: byte
+
+	tooManyArguments: bool
+
+	new()
+	{
+		this.line = new Ram()
+	}
+
+	/**
+	 * Appends one byte to the parser line snapshot.
+	 */
+	public fn AppendByte(value: byte) bool
+	{
+		if ((this.lineLength as int) >= CliLineEditor.MAX_LINE_LENGTH) { return false }
+
+		var index: int = this.lineLength as int
+		this.line.WriteByte(index, value)
+		this.lineLength = (index + 1) as byte
+		return true
+	}
+
+	/**
+	 * Removes the last byte from the parser line snapshot.
+	 */
+	public fn RemoveLastByte() bool
+	{
+		if (this.lineLength == 0) { return false }
+
+		var nextLength: int = (this.lineLength as int) - 1
+		this.lineLength = nextLength as byte
+		return true
+	}
+
+	/**
+	 * Parses the current line snapshot into whitespace-separated token spans.
+	 */
+	public fn Parse()
+	{
+		var index: int = 0
+		this.tokenCount = 0
+		this.tooManyArguments = false
+
+		for (var clearIndex = 0; clearIndex < MAX_TOKENS; clearIndex++) {
+			this.tokenStarts[clearIndex] = 0
+			this.tokenLengths[clearIndex] = 0
+		}
+
+		while (index < (this.lineLength as int)) {
+			var current: byte = this.line.ReadByte(index)
+
+			while (index < (this.lineLength as int) && (current == 0x20 || current == 0x09)) {
+				index = index + 1
+
+				if (index < (this.lineLength as int)) { current = this.line.ReadByte(index) }
+			}
+
+			if (index < (this.lineLength as int)) {
+				var start: int = index
+				current = this.line.ReadByte(index)
+
+				while (index < (this.lineLength as int) && current != 0x20 && current != 0x09) {
+					index = index + 1
+
+					if (index < (this.lineLength as int)) { current = this.line.ReadByte(index) }
+				}
+
+				if ((this.tokenCount as int) < MAX_TOKENS) {
+					this.tokenStarts[this.tokenCount as int] = start as byte
+					this.tokenLengths[this.tokenCount as int] = (index - start) as byte
+					this.tokenCount = ((this.tokenCount as int) + 1) as byte
+				} else {
+					this.tooManyArguments = true
+				}
+			}
+		}
+	}
+
+	/**
+	 * Returns the command token length, or zero for an empty line.
+	 */
+	public fn GetCommandLength() int
+	{
+		if (this.tokenCount == 0) { return 0 }
+
+		return this.tokenLengths[0] as int
+	}
+
+	/**
+	 * Returns true when the command token exactly matches expected.
+	 */
+	public fn CommandEquals(expected: byte[]) bool
+	{
+		var expectedLength: int = expected.Length()
+
+		if (this.GetCommandLength() != expectedLength) { return false }
+
+		var start: int = this.tokenStarts[0] as int
+
+		for (var i = 0; i < expectedLength; i++) {
+			if (this.line.ReadByte(start + i) != expected[i]) { return false }
+		}
+
+		return true
+	}
+
+	/**
+	 * Returns the number of parsed argument tokens.
+	 */
+	public fn GetArgumentCount() int
+	{
+		if (this.tokenCount == 0) { return 0 }
+
+		return (this.tokenCount as int) - 1
+	}
+
+	/**
+	 * Returns one argument length, or zero for an invalid argument index.
+	 */
+	public fn GetArgumentLength(index: int) int
+	{
+		var tokenIndex: int = index + 1
+
+		if (index < 0 || tokenIndex >= (this.tokenCount as int)) { return 0 }
+
+		return this.tokenLengths[tokenIndex] as int
+	}
+
+	/**
+	 * Returns one argument byte, or zero for an invalid index or offset.
+	 */
+	public fn GetArgumentByte(index: int, offset: int) byte
+	{
+		var tokenIndex: int = index + 1
+
+		if (index < 0 || tokenIndex >= (this.tokenCount as int)) { return 0x00 }
+
+		if (offset < 0 || offset >= (this.tokenLengths[tokenIndex] as int)) { return 0x00 }
+
+		return this.line.ReadByte((this.tokenStarts[tokenIndex] as int) + offset)
+	}
+
+	/**
+	 * Returns true when one argument exactly matches expected.
+	 */
+	public fn ArgumentEquals(index: int, expected: byte[]) bool
+	{
+		var expectedLength: int = expected.Length()
+
+		if (this.GetArgumentLength(index) != expectedLength) { return false }
+
+		for (var i = 0; i < expectedLength; i++) {
+			if (this.GetArgumentByte(index, i) != expected[i]) { return false }
+		}
+
+		return true
+	}
+
+	/**
+	 * Returns true when tokens exceeded the supported argument count.
+	 */
+	public fn HasTooManyArguments() bool
+	{
+		return this.tooManyArguments
+	}
+
+	/**
+	 * Clears all parsed token metadata.
+	 */
+	public fn Clear()
+	{
+		this.lineLength = 0
+		this.tokenCount = 0
+		this.tooManyArguments = false
+	}
+}

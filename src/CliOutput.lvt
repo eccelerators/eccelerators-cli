@@ -1,0 +1,179 @@
+namespace Eccelerators.Cli
+
+using Livt.IO
+
+/**
+ * Bounded byte queue used for CLI echo, responses, errors, and prompts.
+ */
+component CliOutput
+{
+	/**
+	 * Number of bytes available in the circular output queue.
+	 */
+	public const BUFFER_SIZE: int = 64
+
+	buffer: Ram
+
+	head: byte
+
+	tail: byte
+
+	count: byte
+
+	new()
+	{
+		this.buffer = new Ram()
+	}
+
+	/**
+	 * Returns the number of queued output bytes.
+	 */
+	public fn GetCount() int
+	{
+		return this.count as int
+	}
+
+	/**
+	 * Returns the remaining output capacity.
+	 */
+	public fn GetFreeSpace() int
+	{
+		return BUFFER_SIZE - (this.count as int)
+	}
+
+	/**
+	 * Returns true when at least one output byte is queued.
+	 */
+	public fn HasData() bool
+	{
+		return this.count != 0
+	}
+
+	/**
+	 * Returns true when an atomic write of length bytes can be accepted.
+	 */
+	public fn CanWrite(length: int) bool
+	{
+		if (length < 0) { return false }
+
+		return length <= this.GetFreeSpace()
+	}
+
+	/**
+	 * Queues one byte, returning false without changing the queue when full.
+	 */
+	public fn TryWriteByte(value: byte) bool
+	{
+		if ((this.count as int) >= BUFFER_SIZE) { return false }
+
+		var tailIndex: int = this.tail as int
+		this.buffer.WriteByte(tailIndex, value)
+		tailIndex = tailIndex + 1
+
+		if (tailIndex == BUFFER_SIZE) { tailIndex = 0 }
+
+		this.tail = tailIndex as byte
+		this.count = ((this.count as int) + 1) as byte
+		return true
+	}
+
+	/**
+	 * Queues the complete array atomically.
+	 */
+	public fn TryWrite(data: byte[]) bool
+	{
+		var length: int = data.Length()
+
+		if (length > this.GetFreeSpace()) { return false }
+
+		var tailIndex: int = this.tail as int
+		var nextCount: int = this.count as int
+
+		for (var i = 0; i < length; i++) {
+			this.buffer.WriteByte(tailIndex, data[i])
+			tailIndex = tailIndex + 1
+
+			if (tailIndex == BUFFER_SIZE) { tailIndex = 0 }
+
+			nextCount = nextCount + 1
+		}
+
+		this.tail = tailIndex as byte
+		this.count = nextCount as byte
+		return true
+	}
+
+	/**
+	 * Queues the complete array followed by CRLF atomically.
+	 */
+	public fn TryWriteLine(data: byte[]) bool
+	{
+		var length: int = data.Length()
+
+		if (length + 2 > this.GetFreeSpace()) { return false }
+
+		var tailIndex: int = this.tail as int
+		var nextCount: int = this.count as int
+
+		for (var i = 0; i < length; i++) {
+			this.buffer.WriteByte(tailIndex, data[i])
+			tailIndex = tailIndex + 1
+
+			if (tailIndex == BUFFER_SIZE) { tailIndex = 0 }
+
+			nextCount = nextCount + 1
+		}
+
+		this.buffer.WriteByte(tailIndex, 0x0D)
+		tailIndex = tailIndex + 1
+
+		if (tailIndex == BUFFER_SIZE) { tailIndex = 0 }
+
+		nextCount = nextCount + 1
+		this.buffer.WriteByte(tailIndex, 0x0A)
+		tailIndex = tailIndex + 1
+
+		if (tailIndex == BUFFER_SIZE) { tailIndex = 0 }
+
+		nextCount = nextCount + 1
+		this.tail = tailIndex as byte
+		this.count = nextCount as byte
+		return true
+	}
+
+	/**
+	 * Returns the oldest queued byte without removing it.
+	 */
+	public fn Peek() byte
+	{
+		if (this.count == 0) { return 0x00 }
+
+		return this.buffer.ReadByte(this.head as int)
+	}
+
+	/**
+	 * Removes the oldest queued byte and reports whether one was present.
+	 */
+	public fn Consume() bool
+	{
+		if (this.count == 0) { return false }
+
+		var headIndex: int = (this.head as int) + 1
+
+		if (headIndex == BUFFER_SIZE) { headIndex = 0 }
+
+		this.head = headIndex as byte
+		this.count = ((this.count as int) - 1) as byte
+		return true
+	}
+
+	/**
+	 * Removes all queued output.
+	 */
+	public fn Clear()
+	{
+		this.head = 0
+		this.tail = 0
+		this.count = 0
+	}
+}

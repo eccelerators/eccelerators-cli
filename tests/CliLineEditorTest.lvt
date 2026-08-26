@@ -1,0 +1,84 @@
+namespace Eccelerators.Cli.Tests
+
+using Eccelerators.Cli
+
+@Test
+component CliLineEditorTest
+{
+	editor: CliLineEditor
+
+	new()
+	{
+		this.editor = new CliLineEditor()
+	}
+
+	@Test
+	fn TracksPrintableInputLength()
+	{
+		this.editor.Clear()
+		assert this.editor.AcceptByte(0x61) == true
+		assert this.editor.AcceptByte(0x62) == true
+		assert this.editor.GetLength() == 2
+		assert this.editor.IsComplete() == false
+	}
+
+	@Test
+	fn CompletesOnLineFeed()
+	{
+		this.editor.Clear()
+		assert this.editor.AcceptByte(0x61) == true
+		assert this.editor.AcceptByte(0x0A) == true
+		assert this.editor.IsComplete() == true
+		assert this.editor.AcceptByte(0x62) == false
+	}
+
+	@Test
+	fn TreatsCrLfAsOneLineEnding()
+	{
+		this.editor.Clear()
+		assert this.editor.AcceptByte(0x0D) == true
+		assert this.editor.IsComplete() == true
+		this.editor.ResetLine()
+		assert this.editor.AcceptByte(0x0A) == true
+		assert this.editor.IsComplete() == false
+	}
+
+	@Test
+	fn BackspaceAndDeleteRemoveCharacters()
+	{
+		this.editor.Clear()
+		assert this.editor.AcceptByte(0x61) == true
+		assert this.editor.AcceptByte(0x62) == true
+		assert this.editor.AcceptByte(0x08) == true
+		assert this.editor.GetLength() == 1
+		assert this.editor.AcceptByte(0x7F) == true
+		assert this.editor.GetLength() == 0
+		assert this.editor.AcceptByte(0x08) == true
+		assert this.editor.GetLength() == 0
+	}
+
+	@Test
+	fn ReportsLineOverflow()
+	{
+		this.editor.Clear()
+
+		for (var i = 0; i < CliLineEditor.MAX_LINE_LENGTH; i++) {
+			assert this.editor.AcceptByte(0x61) == true
+		}
+
+		assert this.editor.GetLength() == CliLineEditor.MAX_LINE_LENGTH
+		assert this.editor.HasOverflow() == false
+		assert this.editor.AcceptByte(0x62) == true
+		assert this.editor.HasOverflow() == true
+		assert this.editor.GetLength() == CliLineEditor.MAX_LINE_LENGTH
+	}
+
+	@Test
+	fn IgnoresUnsupportedControlBytes()
+	{
+		this.editor.Clear()
+		assert this.editor.AcceptByte(0x01) == true
+		assert this.editor.GetLength() == 0
+		assert this.editor.IsComplete() == false
+	}
+}

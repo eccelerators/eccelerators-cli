@@ -1,0 +1,86 @@
+namespace Eccelerators.Cli.Tests
+
+using Eccelerators.Cli
+
+@Test
+component CliParserTest
+{
+	parser: CliParser
+
+	new()
+	{
+		this.parser = new CliParser()
+	}
+
+	fn Feed(data: byte[])
+	{
+		for (var i = 0; i < data.Length(); i++) {
+			this.parser.AppendByte(data[i])
+		}
+	}
+
+	@Test
+	fn ParsesCommandWithoutArguments()
+	{
+		this.parser.Clear()
+		var line = "hello".Encode()
+		this.Feed(line)
+		this.parser.Parse()
+		var expected = "hello".Encode()
+		assert this.parser.CommandEquals(expected) == true
+		assert this.parser.GetCommandLength() == 5
+		assert this.parser.GetArgumentCount() == 0
+	}
+
+	@Test
+	fn ParsesWhitespaceSeparatedArguments()
+	{
+		this.parser.Clear()
+		var line = "  echo   one\ttwo  ".Encode()
+		this.Feed(line)
+		this.parser.Parse()
+		var command = "echo".Encode()
+		var first = "one".Encode()
+		var second = "two".Encode()
+		assert this.parser.CommandEquals(command) == true
+		assert this.parser.GetArgumentCount() == 2
+		assert this.parser.ArgumentEquals(0, first) == true
+		assert this.parser.ArgumentEquals(1, second) == true
+		assert this.parser.GetArgumentByte(1, 1) == 0x77
+	}
+
+	@Test
+	fn RejectsPartialAndCaseDifferentCommands()
+	{
+		this.parser.Clear()
+		var line = "Hello".Encode()
+		this.Feed(line)
+		this.parser.Parse()
+		var lower = "hello".Encode()
+		var partial = "Hell".Encode()
+		assert this.parser.CommandEquals(lower) == false
+		assert this.parser.CommandEquals(partial) == false
+	}
+
+	@Test
+	fn ReportsTooManyArguments()
+	{
+		this.parser.Clear()
+		var line = "c 0 1 2 3 4 5 6 7 8".Encode()
+		this.Feed(line)
+		this.parser.Parse()
+		assert this.parser.GetArgumentCount() == CliParser.MAX_ARGUMENTS
+		assert this.parser.HasTooManyArguments() == true
+	}
+
+	@Test
+	fn HandlesEmptyLinesAndInvalidIndexes()
+	{
+		this.parser.Clear()
+		this.parser.Parse()
+		assert this.parser.GetCommandLength() == 0
+		assert this.parser.GetArgumentCount() == 0
+		assert this.parser.GetArgumentLength(0) == 0
+		assert this.parser.GetArgumentByte(0, 0) == 0x00
+	}
+}

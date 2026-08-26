@@ -1,0 +1,23 @@
+[project]
+name = "Eccelerators.Cli"
+version = "0.1.0"
+path = "src"
+outdir = "out"
+
+[dependencies]
+"Livt.IO" = "1.0.0"
+
+[tests]
+path = "tests"
+components = [
+    "CliOutputTest",
+    "CliLineEditorTest",
+    "CliParserTest",
+    "CliTest"
+]
+
+[build.debug]
+warnings = ["all"]
+
+[build.release]
+warnings = ["all"]

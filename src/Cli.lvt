@@ -1,0 +1,337 @@
+namespace Eccelerators.Cli
+
+/**
+ * Transport-independent, bounded command-line interface for FPGA applications.
+ */
+component Cli
+{
+	const MINIMUM_INPUT_OUTPUT_SPACE: int = 32
+
+	output: CliOutput
+
+	editor: CliLineEditor
+
+	parser: CliParser
+
+	echoEnabled: bool
+
+	commandReady: bool
+
+	promptPending: bool
+
+	/**
+	 * Creates a CLI with optional local terminal echo.
+	 */
+	new(echoEnabled: bool)
+	{
+		this.output = new CliOutput()
+		this.editor = new CliLineEditor()
+		this.parser = new CliParser()
+		this.echoEnabled = echoEnabled
+		this.commandReady = false
+		this.promptPending = true
+	}
+
+	/**
+	 * Queues a pending prompt atomically. Returns false when no prompt is pending
+	 * or the output queue lacks capacity.
+	 */
+	public fn Service() bool
+	{
+		if (this.promptPending == true && this.output.CanWrite(2) == true) {
+			var prompt = "> ".Encode()
+
+			if (this.output.TryWrite(prompt) == true) {
+				this.promptPending = false
+				return true
+			}
+		}
+
+		return false
+	}
+
+	/**
+	 * Returns true when one transport byte can be accepted without losing output.
+	 */
+	public fn CanAcceptByte() bool
+	{
+		if (this.commandReady == true || this.editor.IsComplete() == true) { return false }
+
+		return this.output.GetFreeSpace() >= MINIMUM_INPUT_OUTPUT_SPACE
+	}
+
+	/**
+	 * Applies line editing and optional echo to one transport byte. Returns false
+	 * without consuming the byte when input is backpressured.
+	 */
+	public fn AcceptByte(value: byte) bool
+	{
+		if (this.CanAcceptByte() == false) { return false }
+
+		var oldLength: int = this.editor.GetLength()
+
+		if (this.editor.AcceptByte(value) == false) { return false }
+
+		var newLength: int = this.editor.GetLength()
+
+		if (newLength > oldLength) {
+			var appended: bool = this.parser.AppendByte(value)
+
+			if (appended == false) { return false }
+		} elif (newLength < oldLength) {
+			var removed: bool = this.parser.RemoveLastByte()
+
+			if (removed == false) { return false }
+		}
+
+		if (this.echoEnabled == true) {
+			if (this.editor.IsComplete() == true) {
+				var empty = "".Encode()
+				var lineEndingWritten: bool = this.output.TryWriteLine(empty)
+
+				if (lineEndingWritten == false) { return false }
+			} elif (newLength < oldLength) {
+				var eraseBack: bool = this.output.TryWriteByte(0x08)
+
+				if (eraseBack == false) { return false }
+
+				var eraseSpace: bool = this.output.TryWriteByte(0x20)
+
+				if (eraseSpace == false) { return false }
+
+				var eraseAgain: bool = this.output.TryWriteByte(0x08)
+
+				if (eraseAgain == false) { return false }
+			} elif (newLength > oldLength) {
+				var echoed: bool = this.output.TryWriteByte(value)
+
+				if (echoed == false) { return false }
+			}
+		}
+
+		if (this.editor.IsComplete() == true) {
+			if (this.editor.HasOverflow() == true) {
+				var overflowMessage = "Error: line too long".Encode()
+				var overflowWritten: bool = this.output.TryWriteLine(overflowMessage)
+
+				if (overflowWritten == false) { return false }
+
+				this.editor.ResetLine()
+				this.parser.Clear()
+				this.promptPending = true
+				return true
+			}
+
+			this.parser.Parse()
+
+			if (this.parser.HasTooManyArguments() == true) {
+				var argumentsMessage = "Error: too many arguments".Encode()
+				var argumentsWritten: bool = this.output.TryWriteLine(argumentsMessage)
+
+				if (argumentsWritten == false) { return false }
+
+				this.editor.ResetLine()
+				this.parser.Clear()
+				this.promptPending = true
+			} elif (this.parser.GetCommandLength() == 0) {
+				this.editor.ResetLine()
+				this.parser.Clear()
+				this.promptPending = true
+			} else {
+				this.commandReady = true
+			}
+		}
+
+		return true
+	}
+
+	/**
+	 * Returns true while a parsed command awaits application dispatch.
+	 */
+	public fn HasCommand() bool
+	{
+		return this.commandReady
+	}
+
+	/**
+	 * Completes the pending command and schedules the next prompt. Returns false
+	 * when no command is pending.
+	 */
+	public fn CompleteCommand() bool
+	{
+		if (this.commandReady == false) { return false }
+
+		this.commandReady = false
+		this.editor.ResetLine()
+		this.parser.Clear()
+		this.promptPending = true
+		return true
+	}
+
+	/**
+	 * Restores an empty CLI and schedules a fresh prompt.
+	 */
+	public fn Reset()
+	{
+		this.output.Clear()
+		this.editor.Clear()
+		this.parser.Clear()
+		this.commandReady = false
+		this.promptPending = true
+	}
+
+	/**
+	 * Returns true when the current command exactly matches expected.
+	 */
+	public fn CommandEquals(expected: byte[]) bool
+	{
+		return this.parser.CommandEquals(expected)
+	}
+
+	/**
+	 * Returns the current command length.
+	 */
+	public fn GetCommandLength() int
+	{
+		return this.parser.GetCommandLength()
+	}
+
+	/**
+	 * Returns the current argument count.
+	 */
+	public fn GetArgumentCount() int
+	{
+		return this.parser.GetArgumentCount()
+	}
+
+	/**
+	 * Returns one argument length, or zero when index is invalid.
+	 */
+	public fn GetArgumentLength(index: int) int
+	{
+		return this.parser.GetArgumentLength(index)
+	}
+
+	/**
+	 * Returns one argument byte, or zero when index or offset is invalid.
+	 */
+	public fn GetArgumentByte(index: int, offset: int) byte
+	{
+		return this.parser.GetArgumentByte(index, offset)
+	}
+
+	/**
+	 * Returns true when one argument exactly matches expected.
+	 */
+	public fn ArgumentEquals(index: int, expected: byte[]) bool
+	{
+		return this.parser.ArgumentEquals(index, expected)
+	}
+
+	/**
+	 * Returns true when length is nonnegative and that many output bytes are free.
+	 */
+	public fn CanWrite(length: int) bool
+	{
+		return this.output.CanWrite(length)
+	}
+
+	/**
+	 * Queues one response byte, or returns false without changing the queue.
+	 */
+	public fn TryWriteByte(value: byte) bool
+	{
+		return this.output.TryWriteByte(value)
+	}
+
+	/**
+	 * Queues a complete response atomically, or returns false without changing
+	 * the queue.
+	 */
+	public fn TryWrite(data: byte[]) bool
+	{
+		return this.output.TryWrite(data)
+	}
+
+	/**
+	 * Queues a complete response and CRLF atomically, or returns false without
+	 * changing the queue.
+	 */
+	public fn TryWriteLine(data: byte[]) bool
+	{
+		return this.output.TryWriteLine(data)
+	}
+
+	/**
+	 * Queues all parsed arguments separated by spaces and followed by CRLF.
+	 * The complete line is written atomically.
+	 */
+	public fn TryWriteArgumentsLine() bool
+	{
+		var argumentCount: int = this.parser.GetArgumentCount()
+		var required: int = 2
+
+		for (var i = 0; i < argumentCount; i++) {
+			required = required + this.parser.GetArgumentLength(i)
+
+			if (i > 0) { required = required + 1 }
+		}
+
+		if (this.output.CanWrite(required) == false) { return false }
+
+		for (var i = 0; i < argumentCount; i++) {
+			if (i > 0) {
+				var spaceWritten: bool = this.output.TryWriteByte(0x20)
+
+				if (spaceWritten == false) { return false }
+			}
+
+			var length: int = this.parser.GetArgumentLength(i)
+
+			for (var offset = 0; offset < length; offset++) {
+				var value: byte = this.parser.GetArgumentByte(i, offset)
+				var valueWritten: bool = this.output.TryWriteByte(value)
+
+				if (valueWritten == false) { return false }
+			}
+		}
+
+		var carriageReturnWritten: bool = this.output.TryWriteByte(0x0D)
+
+		if (carriageReturnWritten == false) { return false }
+
+		return this.output.TryWriteByte(0x0A)
+	}
+
+	/**
+	 * Returns true when output is ready for the transport.
+	 */
+	public fn HasOutput() bool
+	{
+		return this.output.HasData()
+	}
+
+	/**
+	 * Returns the next transport output byte without removing it.
+	 */
+	public fn PeekOutput() byte
+	{
+		return this.output.Peek()
+	}
+
+	/**
+	 * Removes one output byte after the transport accepts it.
+	 */
+	public fn ConsumeOutput() bool
+	{
+		return this.output.Consume()
+	}
+
+	/**
+	 * Returns the number of queued output bytes.
+	 */
+	public fn GetOutputCount() int
+	{
+		return this.output.GetCount()
+	}
+}

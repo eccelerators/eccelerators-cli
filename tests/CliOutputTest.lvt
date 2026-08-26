@@ -1,0 +1,128 @@
+namespace Eccelerators.Cli.Tests
+
+using Eccelerators.Cli
+
+@Test
+component CliOutputTest
+{
+	output: CliOutput
+
+	new()
+	{
+		this.output = new CliOutput()
+	}
+
+	@Test
+	fn StartsEmpty()
+	{
+		this.output.Clear()
+		assert this.output.HasData() == false
+		assert this.output.GetCount() == 0
+		assert this.output.GetFreeSpace() == CliOutput.BUFFER_SIZE
+		assert this.output.Peek() == 0x00
+		assert this.output.Consume() == false
+	}
+
+	@Test
+	fn PreservesByteOrder()
+	{
+		this.output.Clear()
+		assert this.output.TryWriteByte(0x41) == true
+		assert this.output.TryWriteByte(0x42) == true
+		assert this.output.Peek() == 0x41
+		assert this.output.Consume() == true
+		assert this.output.Peek() == 0x42
+		assert this.output.Consume() == true
+		assert this.output.HasData() == false
+	}
+
+	@Test
+	fn WritesArraysAtomically()
+	{
+		this.output.Clear()
+		var message = "hello".Encode()
+		assert this.output.TryWrite(message) == true
+		assert this.output.GetCount() == 5
+		assert this.output.Peek() == 0x68
+	}
+
+	@Test
+	fn AppendsCrLfToLines()
+	{
+		this.output.Clear()
+		var message = "ok".Encode()
+		assert this.output.TryWriteLine(message) == true
+		assert this.output.GetCount() == 4
+		assert this.output.Peek() == 0x6F
+		assert this.output.Consume() == true
+		assert this.output.Peek() == 0x6B
+		assert this.output.Consume() == true
+		assert this.output.Peek() == 0x0D
+		assert this.output.Consume() == true
+		assert this.output.Peek() == 0x0A
+	}
+
+	@Test
+	fn RejectsWritesWhenFullWithoutChangingData()
+	{
+		this.output.Clear()
+
+		for (var i = 0; i < CliOutput.BUFFER_SIZE; i++) {
+			assert this.output.TryWriteByte(i as byte) == true
+		}
+
+		assert this.output.GetFreeSpace() == 0
+		assert this.output.TryWriteByte(0xFF) == false
+		var message = "x".Encode()
+		assert this.output.TryWrite(message) == false
+		assert this.output.GetCount() == CliOutput.BUFFER_SIZE
+		assert this.output.Peek() == 0x00
+	}
+
+	@Test
+	fn WrapsAfterBytesAreConsumed()
+	{
+		this.output.Clear()
+
+		for (var i = 0; i < CliOutput.BUFFER_SIZE; i++) {
+			assert this.output.TryWriteByte(i as byte) == true
+		}
+
+		for (var i = 0; i < 8; i++) {
+			assert this.output.Consume() == true
+		}
+
+		for (var i = 0; i < 8; i++) {
+			assert this.output.TryWriteByte((0xA0 + i) as byte) == true
+		}
+
+		assert this.output.GetCount() == CliOutput.BUFFER_SIZE
+
+		for (var i = 8; i < CliOutput.BUFFER_SIZE; i++) {
+			assert this.output.Peek() == (i as byte)
+			assert this.output.Consume() == true
+		}
+
+		for (var i = 0; i < 8; i++) {
+			assert this.output.Peek() == ((0xA0 + i) as byte)
+			assert this.output.Consume() == true
+		}
+
+		assert this.output.HasData() == false
+	}
+
+	@Test
+	fn RejectsAtomicLineWithoutPartialWrite()
+	{
+		this.output.Clear()
+
+		for (var i = 0; i < CliOutput.BUFFER_SIZE - 1; i++) {
+			assert this.output.TryWriteByte(i as byte) == true
+		}
+
+		var empty = "".Encode()
+		assert this.output.TryWriteLine(empty) == false
+		assert this.output.GetCount() == CliOutput.BUFFER_SIZE - 1
+		assert this.output.Peek() == 0x00
+	}
+}
