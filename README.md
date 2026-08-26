@@ -5,7 +5,7 @@ applications written in Livt. It provides bounded terminal input, editing,
 parsing, prompts, atomic output writes, and explicit backpressure. Applications
 remain responsible for the physical byte transport and static command dispatch.
 
-The package is preparing for its first `0.1.0` release and is not published yet.
+The first stable release is `1.0.0`.
 
 ## Features
 
@@ -24,11 +24,11 @@ All capacities and commands are fixed at synthesis time.
 
 ## Installation
 
-After the first release, add the package to a Livt project with:
+Add the package to a Livt project with:
 
 ```toml
 [dependencies]
-"Eccelerators.Cli" = "0.1.0"
+"Eccelerators.Cli" = "1.0.0"
 ```
 
 Import its public API with:

@@ -2,7 +2,7 @@
 
 All notable changes to this package are documented here.
 
-## 0.1.0 - Unreleased
+## 1.0.0 - 2026-08-26
 
 - Add a transport-independent, bounded FPGA command-line interface.
 - Support CR, LF, CRLF, backspace, delete, optional echo, and prompts.
