@@ -19,8 +19,15 @@ The first stable release is `1.0.0`.
 - atomic byte-array and CRLF line writes
 - lossless input and output backpressure
 - no dynamic allocation or command registration
+- optional free-text lines with raw byte access
 
 All capacities and commands are fixed at synthesis time.
+
+For resource-constrained applications, `CompactCli` provides the same core
+terminal contract with one 64-byte distributed-RAM line buffer and a
+single-byte backpressured output slot. It deliberately omits tokenized
+arguments, local echo, prompts, and the output FIFO; applications stream their
+own text and perform static exact-command dispatch.
 
 ## Installation
 
@@ -43,6 +50,8 @@ using Eccelerators.Cli
 - `CliLineEditor` tracks bounded input length and line-ending state.
 - `CliParser` stores a command snapshot and token spans.
 - `CliOutput` queues echo, responses, errors, and prompts atomically.
+- `CompactCli` provides bounded free-text input and streaming output with a
+  smaller hardware footprint.
 
 See [DESIGN.md](DESIGN.md) for ownership, data flow, and timing contracts.
 
@@ -81,6 +90,31 @@ Likewise, call `ConsumeOutput()` only after the transport accepted the byte from
 
 The sibling `livt-uart-cli-app` repository provides a complete UART example.
 
+### Compact integration
+
+`CompactCli` is suited to applications such as the TinyStories showcase where
+every non-command line is application data. A transport process accepts bytes
+when `CanAcceptByte()` is true, waits for `HasLine()`, and calls `CompleteLine()`
+after dispatch. CR, LF, CRLF, backspace/delete, printable input, and overflow
+recovery are handled internally. `EnableEcho()` adds backpressured printable,
+line-ending, and editing echo; `DisableEcho()` restores silent input.
+
+Exact command matching uses a fixed-width argument so synthesis does not need
+dynamic command storage. The expected command is left-aligned and padded to
+16 bytes:
+
+```livt
+var helpCommand: byte[16] = ['/' as byte, 'h' as byte, 'e' as byte, 'l' as byte,
+  'p' as byte, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+if (this.cli.CommandEquals(helpCommand, 5)) {
+  // Stream the help response.
+}
+```
+
+Output is explicitly backpressured. `WriteByte(value)` waits until its one-byte
+slot is free; the transport reads `PeekOutput()` and calls `ConsumeOutput()`
+only after the UART or other sink accepts that byte.
+
 ## Adding commands
 
 Commands are statically dispatched by the application that owns `Cli`:
@@ -105,7 +139,17 @@ Input and lifecycle:
 - `Service()`
 - `CanAcceptByte()` and `AcceptByte(value)`
 - `HasCommand()` and `CompleteCommand()`
+- `EnableFreeText()`, `DisableFreeText()`, `GetLineLength()`, and `GetLineByte(index)`
 - `Reset()`
+
+Compact input and lifecycle:
+
+- `CanAcceptByte()` and `AcceptByte(value)`
+- `HasLine()`, `GetLineLength()`, `GetLineByte(index)`, and `CompleteLine()`
+- `EnableEcho()` and `DisableEcho()`
+- `HasOverflow()` and `Reset()`
+- `CommandEquals(expected, expectedLength)`
+- `WriteByte(value)`, `HasOutput()`, `PeekOutput()`, and `ConsumeOutput()`
 
 Parsing:
 
@@ -126,6 +170,9 @@ Output:
 
 - Command lines contain at most 64 printable bytes.
 - At most eight arguments are retained; excess arguments reject the line.
+- Free-text mode retains the complete 64-byte line and allows excess argument
+  words to reach the application; only the first eight remain available through
+  the argument API.
 - Parsing is case-sensitive.
 - Spaces and tabs separate arguments; quoting and escaping are not implemented.
 - The output FIFO holds 64 bytes, so one atomic `TryWriteLine()` payload can be
@@ -142,7 +189,8 @@ livt test
 
 The test suite covers complete FIFO ordering and wraparound, atomic writes, line
 endings, editing, overflow recovery, parsing, argument limits, prompts, enabled
-and disabled echo, input backpressure, and command completion.
+and disabled echo, input backpressure, command completion, compact exact-command
+matching, and compact streaming-output backpressure.
 
 ## License
 

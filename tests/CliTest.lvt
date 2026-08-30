@@ -198,6 +198,29 @@ component CliTest
 	}
 
 	@Test
+	fn AcceptsFreeTextWithMoreThanEightWords()
+	{
+		this.silentCli.Reset()
+		this.silentCli.EnableFreeText()
+		assert this.silentCli.Service() == true
+		assert this.silentCli.ConsumeOutput() == true
+		assert this.silentCli.ConsumeOutput() == true
+		var line = "one two three four five six seven eight nine ten\n".Encode()
+
+		for (var index = 0; index < line.Length(); index++) {
+			assert this.silentCli.AcceptByte(line[index]) == true
+		}
+
+		assert this.silentCli.HasCommand() == true
+		assert this.silentCli.GetLineLength() == line.Length() - 1
+		var expected = "one two three four five six seven eight nine ten".Encode()
+		for (var index = 0; index < expected.Length(); index++) {
+			assert this.silentCli.GetLineByte(index) == expected[index]
+		}
+		this.silentCli.DisableFreeText()
+	}
+
+	@Test
 	fn DisablesLocalEcho()
 	{
 		this.silentCli.Reset()

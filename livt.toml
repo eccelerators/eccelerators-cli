@@ -5,12 +5,13 @@ path = "src"
 outdir = "out"
 
 [dependencies]
-"Livt.IO" = "1.0.0"
+"Livt.IO" = { path = "../livt-io" }
 
 [tests]
 path = "tests"
 components = [
     "CliOutputTest",
+    "CompactCliTest",
     "CliLineEditorTest",
     "CliParserTest",
     "CliTest"

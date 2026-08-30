@@ -74,6 +74,20 @@ component CliParserTest
 	}
 
 	@Test
+	fn RetainsTheCompleteRawLine()
+	{
+		this.parser.Clear()
+		var line = "A little girl with an apple".Encode()
+		this.Feed(line)
+		this.parser.Parse()
+		assert this.parser.GetLineLength() == line.Length()
+		for (var index = 0; index < line.Length(); index++) {
+			assert this.parser.GetLineByte(index) == line[index]
+		}
+		assert this.parser.GetLineByte(line.Length()) == 0x00
+	}
+
+	@Test
 	fn HandlesEmptyLinesAndInvalidIndexes()
 	{
 		this.parser.Clear()

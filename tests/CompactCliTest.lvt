@@ -1,0 +1,125 @@
+namespace Eccelerators.Cli.Tests
+
+using Eccelerators.Cli
+
+@Test
+component CompactCliTest
+{
+	cli: CompactCli
+
+	new() { this.cli = new CompactCli() }
+
+	@Test
+	fn RetainsFreeTextAndSuppressesCrLfTail()
+	{
+		var line = "a little story\r\n".Encode()
+		for (var index = 0; index < line.Length(); index++) {
+			assert this.cli.AcceptByte(line[index])
+		}
+		assert this.cli.HasLine()
+		assert this.cli.GetLineLength() == 14
+		var expected: byte[16] = [
+			0x61, 0x20, 0x6c, 0x69, 0x74, 0x74, 0x6c, 0x65,
+			0x20, 0x73, 0x74, 0x6f, 0x72, 0x79, 0x00, 0x00]
+		assert this.cli.CommandEquals(expected, 14)
+		assert this.cli.CompleteLine()
+		assert this.cli.AcceptByte(0x0a)
+		assert !this.cli.HasLine()
+	}
+
+	@Test
+	fn AppliesBackspaceAndMatchesCommands()
+	{
+		var prefix = "/resex".Encode()
+		for (var index = 0; index < prefix.Length(); index++) {
+			assert this.cli.AcceptByte(prefix[index])
+		}
+		assert this.cli.GetLineLength() == 6
+		assert this.cli.AcceptByte(0x08)
+		assert this.cli.GetLineLength() == 5
+		assert this.cli.AcceptByte(0x74)
+		assert this.cli.AcceptByte(0x0d)
+		assert this.cli.GetLineLength() == 6
+		assert this.cli.GetLineByte(0) == 0x2f
+		assert this.cli.GetLineByte(1) == 0x72
+		assert this.cli.GetLineByte(2) == 0x65
+		assert this.cli.GetLineByte(3) == 0x73
+		assert this.cli.GetLineByte(4) == 0x65
+		assert this.cli.GetLineByte(5) == 0x74
+		var resetCommand: byte[16] = [
+			0x2f, 0x72, 0x65, 0x73, 0x65, 0x74, 0x00, 0x00,
+			0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00]
+		assert this.cli.CommandEquals(resetCommand, 6)
+	}
+
+	@Test
+	fn ReportsOverflowWithoutCorruptingRetainedLine()
+	{
+		this.cli.Reset()
+		for (var index = 0; index < CompactCli.MAX_LINE_LENGTH; index++) {
+			assert this.cli.AcceptByte(0x61)
+		}
+		assert this.cli.AcceptByte(0x62)
+		assert this.cli.AcceptByte(0x0d)
+		assert this.cli.HasLine()
+		assert this.cli.HasOverflow()
+		assert this.cli.GetLineLength() == CompactCli.MAX_LINE_LENGTH
+	}
+
+	@Test
+	fn BackpressuresStreamingOutput()
+	{
+		assert this.cli.TryWriteByte(0x41)
+		assert !this.cli.TryWriteByte(0x42)
+		assert this.cli.HasOutput()
+		assert this.cli.PeekOutput() == 0x41
+		assert this.cli.ConsumeOutput()
+		assert !this.cli.HasOutput()
+		assert this.cli.TryWriteByte(0x42)
+		assert this.cli.PeekOutput() == 0x42
+	}
+
+}
+
+/** Keeps echo configuration isolated from the concurrent compact CLI tests. */
+@Test
+component CompactCliEchoTest
+{
+	cli: CompactCli
+
+	new() { this.cli = new CompactCli() }
+
+	@Test
+	fn EchoesInputAndEditingWithBackpressure()
+	{
+		this.cli.EnableEcho()
+
+		assert this.cli.AcceptByte(0x41)
+		assert !this.cli.CanAcceptByte()
+		assert this.cli.PeekOutput() == 0x41
+		assert this.cli.ConsumeOutput()
+		assert !this.cli.HasOutput()
+
+		assert this.cli.AcceptByte(0x08)
+		assert this.cli.PeekOutput() == 0x08
+		assert this.cli.ConsumeOutput()
+		assert this.cli.PeekOutput() == 0x20
+		assert this.cli.ConsumeOutput()
+		assert this.cli.PeekOutput() == 0x08
+		assert this.cli.ConsumeOutput()
+		assert !this.cli.HasOutput()
+
+		assert this.cli.AcceptByte(0x42)
+		assert this.cli.ConsumeOutput()
+		assert this.cli.AcceptByte(0x0d)
+		assert this.cli.HasLine()
+		assert this.cli.PeekOutput() == 0x0d
+		assert this.cli.ConsumeOutput()
+		assert this.cli.PeekOutput() == 0x0a
+		assert this.cli.ConsumeOutput()
+		assert !this.cli.HasOutput()
+		assert this.cli.CompleteLine()
+		assert this.cli.AcceptByte(0x0a)
+		assert !this.cli.HasOutput()
+	}
+}

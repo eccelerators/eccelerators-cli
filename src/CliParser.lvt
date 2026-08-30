@@ -111,6 +111,24 @@ component CliParser
 	}
 
 	/**
+	 * Returns the complete retained line length before token parsing.
+	 */
+	public fn GetLineLength() int
+	{
+		return this.lineLength as int
+	}
+
+	/**
+	 * Returns one byte from the complete retained line, or zero outside it.
+	 */
+	public fn GetLineByte(index: int) byte
+	{
+		if (index < 0 || index >= (this.lineLength as int)) { return 0x00 }
+
+		return this.line.ReadByte(index)
+	}
+
+	/**
 	 * Returns true when the command token exactly matches expected.
 	 */
 	public fn CommandEquals(expected: byte[]) bool

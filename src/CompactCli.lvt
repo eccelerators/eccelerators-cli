@@ -1,0 +1,245 @@
+namespace Eccelerators.Cli
+
+using Livt.IO
+
+/**
+ * Resource-oriented free-text CLI for constrained FPGA applications.
+ *
+ * The component owns one 64-byte distributed line buffer and a one-byte
+ * backpressured output slot. It recognizes terminal line endings and editing,
+ * retains complete free-text lines, and supports exact command matching. It
+ * intentionally omits the full CLI's argument table and output FIFO.
+ */
+component CompactCli
+{
+	public const MAX_LINE_LENGTH: int = 64
+	public const MAX_COMMAND_LENGTH: int = 16
+
+	const CARRIAGE_RETURN: byte = 0x0d
+	const LINE_FEED: byte = 0x0a
+	const BACKSPACE: byte = 0x08
+	const DELETE: byte = 0x7f
+	const ECHO_NONE: byte = 0x00
+	const ECHO_LINE_FEED: byte = 0x01
+	const ECHO_ERASE_SPACE: byte = 0x02
+	const ECHO_ERASE_BACK: byte = 0x03
+
+	line: DistributedRam8x64
+	lineLength: byte
+	lineReady: bool
+	overflow: bool
+	ignoreNextLineFeed: bool
+	outputValid: bool
+	outputByte: byte
+	echoEnabled: bool
+	echoContinuation: byte
+
+	new()
+	{
+		this.line = new DistributedRam8x64()
+		this.echoEnabled = false
+	}
+
+	/** Returns true when another transport byte can be consumed. */
+	public fn CanAcceptByte() bool
+	{
+		if (this.lineReady) { return false }
+		return !this.echoEnabled || !this.outputValid
+	}
+
+	/** Applies line endings, deletion, printable filtering, and length bounds. */
+	public fn AcceptByte(value: byte) bool
+	{
+		if (this.ignoreNextLineFeed) {
+			this.ignoreNextLineFeed = false
+			if (value == LINE_FEED) { return true }
+		}
+
+		// Keep this check local. Calling the public CanAcceptByte dispatcher from
+		// another method on the same component is not lowered as a direct call.
+		if (this.lineReady) { return false }
+		if (this.echoEnabled && this.outputValid) { return false }
+
+		if (value == CARRIAGE_RETURN) {
+			state {
+				this.ignoreNextLineFeed = true
+				if (this.lineLength != 0 || this.overflow) { this.lineReady = true }
+				if (this.echoEnabled) {
+					this.outputByte = CARRIAGE_RETURN
+					this.outputValid = true
+					this.echoContinuation = ECHO_LINE_FEED
+				}
+			}
+			return true
+		}
+
+		if (value == LINE_FEED) {
+			state {
+				if (this.lineLength != 0 || this.overflow) { this.lineReady = true }
+				if (this.echoEnabled) {
+					this.outputByte = CARRIAGE_RETURN
+					this.outputValid = true
+					this.echoContinuation = ECHO_LINE_FEED
+				}
+			}
+			return true
+		}
+
+		if (value == BACKSPACE || value == DELETE) {
+			if (this.lineLength != 0) {
+				state {
+					this.lineLength = ((this.lineLength as int) - 1) as byte
+					if (this.echoEnabled) {
+						this.outputByte = BACKSPACE
+						this.outputValid = true
+						this.echoContinuation = ECHO_ERASE_SPACE
+					}
+				}
+				state {}
+			}
+			return true
+		}
+
+		if (value < 0x20 || value > 0x7e) { return true }
+
+		if ((this.lineLength as int) >= MAX_LINE_LENGTH) {
+			state { this.overflow = true }
+			return true
+		}
+
+		var address = this.lineLength as int
+		state {
+			this.line.address = address as logic[6]
+			this.line.write_data = value as logic[8]
+			this.line.write_enable = 0b1
+			if (this.echoEnabled) {
+				this.outputByte = value
+				this.outputValid = true
+				this.echoContinuation = ECHO_NONE
+			}
+		}
+		state { this.line.write_enable = 0b0 }
+		state { this.lineLength = (address + 1) as byte }
+		state {}
+		return true
+	}
+
+	/** Enables terminal echo for printable input, line endings, and editing. */
+	public fn EnableEcho() { this.echoEnabled = true }
+
+	/** Disables echo without discarding bytes already accepted for output. */
+	public fn DisableEcho() { this.echoEnabled = false }
+
+	/** Returns true while a complete line awaits application processing. */
+	public fn HasLine() bool { return this.lineReady }
+
+	/** Returns whether printable input exceeded the retained line capacity. */
+	public fn HasOverflow() bool { return this.overflow }
+
+	/** Returns the number of retained printable bytes. */
+	public fn GetLineLength() int { return this.lineLength as int }
+
+	/** Returns one retained byte, or zero for an invalid index. */
+	public fn GetLineByte(index: int) byte
+	{
+		if (index < 0 || index >= (this.lineLength as int)) { return 0x00 }
+		state { this.line.address = index as logic[6] }
+		state {}
+		state {}
+		return this.line.read_data as byte
+	}
+
+	/**
+	 * Returns true when the complete line exactly matches a fixed command.
+	 *
+	 * `expected` is a left-aligned fixed-width byte pattern and
+	 * `expectedLength` is its logical length. The fixed shape avoids generated
+	 * call records resizing differently sized dynamic command literals.
+	 */
+	public fn CommandEquals(expected: byte[16], expectedLength: int) bool
+	{
+		if (expectedLength < 0 || expectedLength > MAX_COMMAND_LENGTH) { return false }
+		if ((this.lineLength as int) != expectedLength) { return false }
+		for (var index = 0; index < expectedLength; index++) {
+			state { this.line.address = index as logic[6] }
+			state {}
+			state {}
+			state {}
+			state {}
+			if ((this.line.read_data as byte) != expected[index]) { return false }
+		}
+		return true
+	}
+
+	/** Releases the current line and preserves pending CRLF suppression. */
+	public fn CompleteLine() bool
+	{
+		if (!this.lineReady) { return false }
+		state {
+			this.lineLength = 0
+			this.lineReady = false
+			this.overflow = false
+		}
+		state {}
+		state {}
+		return true
+	}
+
+	/** Clears input, line-ending, and output state. */
+	public fn Reset()
+	{
+		state {
+			this.lineLength = 0
+			this.lineReady = false
+			this.overflow = false
+			this.ignoreNextLineFeed = false
+			this.outputValid = false
+			this.outputByte = 0x00
+			this.echoContinuation = ECHO_NONE
+		}
+		state {}
+		state {}
+	}
+
+	/** Queues one output byte, or applies backpressure when the slot is full. */
+	public fn TryWriteByte(value: byte) bool
+	{
+		if (this.outputValid) { return false }
+		state {
+			this.outputByte = value
+			this.outputValid = true
+		}
+		state {}
+		state {}
+		return true
+	}
+
+	/** Returns true when one output byte awaits the transport. */
+	public fn HasOutput() bool { return this.outputValid }
+
+	/** Returns the pending output byte without consuming it. */
+	public fn PeekOutput() byte { return this.outputByte }
+
+	/** Acknowledges the pending output byte. */
+	public fn ConsumeOutput() bool
+	{
+		if (!this.outputValid) { return false }
+		state {
+			if (this.echoContinuation == ECHO_LINE_FEED) {
+				this.outputByte = LINE_FEED
+				this.echoContinuation = ECHO_NONE
+			} elif (this.echoContinuation == ECHO_ERASE_SPACE) {
+				this.outputByte = 0x20
+				this.echoContinuation = ECHO_ERASE_BACK
+			} elif (this.echoContinuation == ECHO_ERASE_BACK) {
+				this.outputByte = BACKSPACE
+				this.echoContinuation = ECHO_NONE
+			} else {
+				this.outputValid = false
+			}
+		}
+		state {}
+		state {}
+		return true
+	}
+}

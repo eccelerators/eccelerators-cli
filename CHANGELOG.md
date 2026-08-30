@@ -1,6 +1,17 @@
 # Changelog
 
+## Unreleased
+
+- Add `CompactCli`, a resource-oriented free-text terminal with a distributed
+  64-byte line buffer and backpressured streaming output for constrained FPGA
+  applications.
+
 All notable changes to this package are documented here.
+
+## Unreleased
+
+- Add opt-in free-text lines and complete raw-line byte access while preserving
+  strict excessive-argument rejection by default.
 
 ## 1.0.0 - 2026-08-26
 

@@ -15,6 +15,8 @@ component Cli
 
 	echoEnabled: bool
 
+	freeTextEnabled: bool
+
 	commandReady: bool
 
 	promptPending: bool
@@ -28,6 +30,7 @@ component Cli
 		this.editor = new CliLineEditor()
 		this.parser = new CliParser()
 		this.echoEnabled = echoEnabled
+		this.freeTextEnabled = false
 		this.commandReady = false
 		this.promptPending = true
 	}
@@ -124,7 +127,7 @@ component Cli
 
 			this.parser.Parse()
 
-			if (this.parser.HasTooManyArguments() == true) {
+			if (this.parser.HasTooManyArguments() == true && this.freeTextEnabled == false) {
 				var argumentsMessage = "Error: too many arguments".Encode()
 				var argumentsWritten: bool = this.output.TryWriteLine(argumentsMessage)
 
@@ -143,6 +146,39 @@ component Cli
 		}
 
 		return true
+	}
+
+	/**
+	 * Allows completed lines with more than eight arguments to reach the
+	 * application. The complete line remains available through GetLineByte.
+	 */
+	public fn EnableFreeText()
+	{
+		this.freeTextEnabled = true
+	}
+
+	/**
+	 * Restores strict command parsing and excessive-argument rejection.
+	 */
+	public fn DisableFreeText()
+	{
+		this.freeTextEnabled = false
+	}
+
+	/**
+	 * Returns the complete retained line length.
+	 */
+	public fn GetLineLength() int
+	{
+		return this.parser.GetLineLength()
+	}
+
+	/**
+	 * Returns one byte from the complete retained line, or zero outside it.
+	 */
+	public fn GetLineByte(index: int) byte
+	{
+		return this.parser.GetLineByte(index)
 	}
 
 	/**
