@@ -1,0 +1,73 @@
+namespace Eccelerators.Cli.Tests
+
+using Eccelerators.Cli
+using Livt.IO
+
+/**
+ * Verifies byte handoff and backpressure against the Livt.IO buffered UART API.
+ */
+@Test
+@Context(ClockFrequency=100MHz)
+component CliUartIntegrationTest
+{
+	// CLI output remains owned here until the UART accepts it.
+	cli: CompactCli
+	uart: BufferedUart<3, 3, UartDataBits.Eight, UartParity.None, UartStopBits.One, 1MHz>
+
+	// Serial loopback and synchronous launch gating make FIFO rejection deterministic.
+	line: logic
+	permission: bool
+
+	/**
+	 * Connects the UART output to its input with launch permission initially blocked.
+	 */
+	new()
+	{
+		this.cli = new CompactCli()
+		this.uart = new BufferedUart<3, 3, UartDataBits.Eight, UartParity.None,
+			UartStopBits.One, 1MHz>(this.line, this.line, this.permission)
+	}
+
+	/**
+	 * Retains rejected output, then delivers an accepted byte and line terminator.
+	 */
+	@Test
+	fn PreservesOutputUntilAcceptedAndReceivesCompleteLine()
+	{
+		this.cli.Reset()
+		this.cli.DisableEcho()
+		assert this.cli.TryWriteByte(0x61)
+		assert this.uart.TryTransmit(0x01)
+		assert this.uart.TryTransmit(0x02)
+		assert this.uart.TryTransmit(0x03)
+		var pending = this.cli.PeekOutput()
+		var accepted = this.uart.TryTransmit(pending)
+		assert !accepted
+		assert this.cli.HasOutput()
+		assert this.cli.PeekOutput() == 0x61
+
+		this.uart.ClearTransmitBuffer()
+		this.permission = true
+		accepted = this.uart.TryTransmit(pending)
+		assert accepted
+		assert this.cli.ConsumeOutput()
+		assert !this.cli.HasOutput()
+		assert this.uart.TryTransmit(0x0d)
+		Simulation.Wait(3000)
+
+		for (var index = 0; index < 2; index++) {
+			assert this.cli.CanAcceptByte()
+			var received: byte
+			assert this.uart.TryReceive(received)
+			assert this.cli.AcceptByte(received)
+		}
+
+		assert this.cli.HasLine()
+		assert this.cli.GetLineLength() == 1
+		assert this.cli.GetLineByte(0) == 0x61
+		assert !this.cli.CanAcceptByte()
+		assert this.uart.GetReceiveCount() == 0
+		assert this.uart.GetFrameErrorCount() == 0
+		assert this.uart.GetReceiveOverflowCount() == 0
+	}
+}

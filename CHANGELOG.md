@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Use `Livt.IO 1.2.0-dev` and verify buffered UART byte handoff, transmit
+  backpressure, and loopback input through the current Try-operation API.
+- Register the compact echo regression and correct transport integration docs.
+
 - Add `CompactCli`, a resource-oriented free-text terminal with a distributed
   64-byte line buffer and backpressured streaming output for constrained FPGA
   applications.

@@ -5,7 +5,7 @@ applications written in Livt. It provides bounded terminal input, editing,
 parsing, prompts, atomic output writes, and explicit backpressure. Applications
 remain responsible for the physical byte transport and static command dispatch.
 
-The first stable release is `1.0.0`.
+The current package version is `1.1.0` and depends on `Livt.IO 1.2.0-dev`.
 
 ## Features
 
@@ -26,7 +26,7 @@ All capacities and commands are fixed at synthesis time.
 For resource-constrained applications, `CompactCli` provides the same core
 terminal contract with one 64-byte distributed-RAM line buffer and a
 single-byte backpressured output slot. It deliberately omits tokenized
-arguments, local echo, prompts, and the output FIFO; applications stream their
+arguments, prompts, and the output FIFO; applications stream their
 own text and perform static exact-command dispatch.
 
 ## Installation
@@ -35,7 +35,7 @@ Add the package to a Livt project with:
 
 ```toml
 [dependencies]
-"Eccelerators.Cli" = "1.0.0"
+"Eccelerators.Cli" = "1.1.0"
 ```
 
 Import its public API with:
@@ -88,7 +88,31 @@ The transport must not discard an input byte when `CanAcceptByte()` is false.
 Likewise, call `ConsumeOutput()` only after the transport accepted the byte from
 `PeekOutput()`. These two rules preserve data during backpressure.
 
-The sibling `livt-uart-cli-app` repository provides a complete UART example.
+With `Livt.IO 1.2.0-dev`, use `BufferedUart` or `RtsCtsBufferedUart` for the
+scheduled byte transport. `Uart` is the low-level signal interface. An application
+that owns `cli: Cli` and a buffered `uart` can perform the handoff as follows:
+
+```livt
+if (this.cli.HasOutput()) {
+	var value = this.cli.PeekOutput()
+	if (this.uart.TryTransmit(value)) {
+		this.cli.ConsumeOutput()
+	}
+}
+
+if (this.cli.CanAcceptByte()) {
+	var value: byte
+	if (this.uart.TryReceive(value)) {
+		this.cli.AcceptByte(value)
+	}
+}
+```
+
+Use one transport owner so no other caller changes CLI input capacity between
+the check and acceptance. UART receive removes the byte only on success; UART
+transmit success means FIFO acceptance, not completion on the wire. A rejected
+transmit leaves CLI output queued for retry. Hardware receive storage is bounded;
+use RTS/CTS and a cooperating peer when input must pause during command handling.
 
 ### Compact integration
 
@@ -111,9 +135,10 @@ if (this.cli.CommandEquals(helpCommand, 5)) {
 }
 ```
 
-Output is explicitly backpressured. `WriteByte(value)` waits until its one-byte
-slot is free; the transport reads `PeekOutput()` and calls `ConsumeOutput()`
-only after the UART or other sink accepts that byte.
+Output is explicitly backpressured. `TryWriteByte(value)` returns false when its
+one-byte slot is full, leaving the pending byte unchanged. Retry rejected writes
+later; the transport reads `PeekOutput()` and calls `ConsumeOutput()` only after
+the UART or other sink accepts that byte.
 
 ## Adding commands
 
@@ -149,7 +174,7 @@ Compact input and lifecycle:
 - `EnableEcho()` and `DisableEcho()`
 - `HasOverflow()` and `Reset()`
 - `CommandEquals(expected, expectedLength)`
-- `WriteByte(value)`, `HasOutput()`, `PeekOutput()`, and `ConsumeOutput()`
+- `TryWriteByte(value)`, `HasOutput()`, `PeekOutput()`, and `ConsumeOutput()`
 
 Parsing:
 
@@ -190,7 +215,8 @@ livt test
 The test suite covers complete FIFO ordering and wraparound, atomic writes, line
 endings, editing, overflow recovery, parsing, argument limits, prompts, enabled
 and disabled echo, input backpressure, command completion, compact exact-command
-matching, and compact streaming-output backpressure.
+matching, compact echo and streaming-output backpressure, and buffered UART
+acceptance/retry plus serial loopback reception with `Livt.IO 1.2.0-dev`.
 
 ## License
 
