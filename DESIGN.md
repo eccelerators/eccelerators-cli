@@ -45,24 +45,29 @@ all capacities are at most 64 bytes.
 `CliOutput` is a 64-byte circular FIFO. Array and line writes first verify the
 complete required capacity, so failure leaves the queue unchanged.
 
-The parser line and output FIFO are stored in separate `Livt.IO.Ram` components.
-Each logical buffer uses only its first 64 byte addresses, trading two block RAM
-instances for substantially less LUT and flip-flop state than compiler-generated
-fixed-array mutation shadows. They remain separate because a pending command must
-stay readable while its response is queued.
+The parser line and output FIFO are stored in separate
+`Livt.IO.DistributedRam<byte, 64>` components. Their generic storage is right-sized
+to the logical capacity and requests distributed mapping; synthesis makes the
+physical allocation decision. Length/count metadata prevents reads of unwritten
+cells, so no zero-filled startup is required. The stores remain separate because
+a pending command must stay readable while its response is queued.
 
 The application must only call `ConsumeOutput()` after its transport accepts the
 byte returned by `PeekOutput()`. This preserves every echo, response, error, and
 prompt during downstream backpressure.
 
-## Reference resource usage
+## Historical reference resource usage
 
-An out-of-context synthesis of the complete public `Cli` component with Vivado
+Before the generic RAM migration, an out-of-context synthesis of the complete
+public `Cli` component with Vivado
 2026.1 for `xc7a35tcpg236-1` uses 5,335 logic LUTs, 5,774 flip-flops, and two
 RAMB18 blocks. The equivalent fixed-array implementation used 9,321 logic LUTs
 and 10,044 flip-flops without block RAM. The RAM-backed buffers therefore reduce
 standalone CLI logic by 3,986 LUTs and 4,270 flip-flops. Application-level
 utilization varies with the methods used and the surrounding synthesis context.
+These numbers describe the former two-2048-byte block-RAM implementation, not
+the current two-64-byte generic distributed-style stores. The migrated design
+has not yet been synthesized or measured on the board.
 
 `TryWriteArgumentsLine()` provides the common command-response operation of
 joining parsed arguments with spaces and CRLF. It reserves space for the entire

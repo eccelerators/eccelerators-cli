@@ -12,9 +12,11 @@ using Livt.IO
  */
 component CompactCli
 {
+	// Storage geometry and command matching limit.
 	public const MAX_LINE_LENGTH: int = 64
 	public const MAX_COMMAND_LENGTH: int = 16
 
+	// Terminal control characters and echo continuation codes.
 	const CARRIAGE_RETURN: byte = 0x0d
 	const LINE_FEED: byte = 0x0a
 	const BACKSPACE: byte = 0x08
@@ -24,7 +26,14 @@ component CompactCli
 	const ECHO_ERASE_SPACE: byte = 0x02
 	const ECHO_ERASE_BACK: byte = 0x03
 
-	line: DistributedRam8x64
+	// Live storage boundary; scheduled methods own the command registers.
+	line: AsynchronousDistributedRam8x64
+	lineAddress: logic[6]
+	lineWriteEnable: bool
+	lineWriteData: logic[8]
+	lineReadData: logic[8]
+
+	// Valid-prefix metadata and the independent backpressured output slot.
 	lineLength: byte
 	lineReady: bool
 	overflow: bool
@@ -34,20 +43,38 @@ component CompactCli
 	echoEnabled: bool
 	echoContinuation: byte
 
+	/**
+	 * Creates an empty line buffer without initializing its unread payload cells.
+	 */
 	new()
 	{
-		this.line = new DistributedRam8x64()
+		this.line = new AsynchronousDistributedRam8x64()
 		this.echoEnabled = false
 	}
 
-	/** Returns true when another transport byte can be consumed. */
+	/**
+	 * Wires the asynchronous storage without implicit registered observations.
+	 */
+	process MemoryPort[]()
+	{
+		this.line.address = lineAddress
+		this.line.writeEnable = lineWriteEnable
+		this.line.writeData = lineWriteData
+		lineReadData = this.line.readData
+	}
+
+	/**
+	 * Returns true when another transport byte can be consumed.
+	 */
 	public fn CanAcceptByte() bool
 	{
 		if (this.lineReady) { return false }
 		return !this.echoEnabled || !this.outputValid
 	}
 
-	/** Applies line endings, deletion, printable filtering, and length bounds. */
+	/**
+	 * Applies line endings, deletion, printable filtering, and length bounds.
+	 */
 	public fn AcceptByte(value: byte) bool
 	{
 		if (this.ignoreNextLineFeed) {
@@ -109,44 +136,56 @@ component CompactCli
 
 		var address = this.lineLength as int
 		state {
-			this.line.address = address as logic[6]
-			this.line.write_data = value as logic[8]
-			this.line.write_enable = 0b1
+			lineAddress = address as logic[6]
+			lineWriteData = value as logic[8]
+			lineWriteEnable = true
 			if (this.echoEnabled) {
 				this.outputByte = value
 				this.outputValid = true
 				this.echoContinuation = ECHO_NONE
 			}
 		}
-		state { this.line.write_enable = 0b0 }
+		state { lineWriteEnable = false }
 		state { this.lineLength = (address + 1) as byte }
 		state {}
 		return true
 	}
 
-	/** Enables terminal echo for printable input, line endings, and editing. */
+	/**
+	 * Enables terminal echo for printable input, line endings, and editing.
+	 */
 	public fn EnableEcho() { this.echoEnabled = true }
 
-	/** Disables echo without discarding bytes already accepted for output. */
+	/**
+	 * Disables echo without discarding bytes already accepted for output.
+	 */
 	public fn DisableEcho() { this.echoEnabled = false }
 
-	/** Returns true while a complete line awaits application processing. */
+	/**
+	 * Returns true while a complete line awaits application processing.
+	 */
 	public fn HasLine() bool { return this.lineReady }
 
-	/** Returns whether printable input exceeded the retained line capacity. */
+	/**
+	 * Returns whether printable input exceeded the retained line capacity.
+	 */
 	public fn HasOverflow() bool { return this.overflow }
 
-	/** Returns the number of retained printable bytes. */
+	/**
+	 * Returns the number of retained printable bytes.
+	 */
 	public fn GetLineLength() int { return this.lineLength as int }
 
-	/** Returns one retained byte, or zero for an invalid index. */
+	/**
+	 * Returns one retained byte, or zero for an invalid index.
+	 */
 	public fn GetLineByte(index: int) byte
 	{
 		if (index < 0 || index >= (this.lineLength as int)) { return 0x00 }
-		state { this.line.address = index as logic[6] }
+		state { lineAddress = index as logic[6] }
 		state {}
 		state {}
-		return this.line.read_data as byte
+		return lineReadData as byte
 	}
 
 	/**
@@ -161,17 +200,19 @@ component CompactCli
 		if (expectedLength < 0 || expectedLength > MAX_COMMAND_LENGTH) { return false }
 		if ((this.lineLength as int) != expectedLength) { return false }
 		for (var index = 0; index < expectedLength; index++) {
-			state { this.line.address = index as logic[6] }
+			state { lineAddress = index as logic[6] }
 			state {}
 			state {}
 			state {}
 			state {}
-			if ((this.line.read_data as byte) != expected[index]) { return false }
+			if ((lineReadData as byte) != expected[index]) { return false }
 		}
 		return true
 	}
 
-	/** Releases the current line and preserves pending CRLF suppression. */
+	/**
+	 * Releases the current line and preserves pending CRLF suppression.
+	 */
 	public fn CompleteLine() bool
 	{
 		if (!this.lineReady) { return false }
@@ -185,7 +226,9 @@ component CompactCli
 		return true
 	}
 
-	/** Clears input, line-ending, and output state. */
+	/**
+	 * Clears input, line-ending, and output state.
+	 */
 	public fn Reset()
 	{
 		state {
@@ -201,7 +244,9 @@ component CompactCli
 		state {}
 	}
 
-	/** Queues one output byte, or applies backpressure when the slot is full. */
+	/**
+	 * Queues one output byte, or applies backpressure when the slot is full.
+	 */
 	public fn TryWriteByte(value: byte) bool
 	{
 		if (this.outputValid) { return false }
@@ -214,13 +259,19 @@ component CompactCli
 		return true
 	}
 
-	/** Returns true when one output byte awaits the transport. */
+	/**
+	 * Returns true when one output byte awaits the transport.
+	 */
 	public fn HasOutput() bool { return this.outputValid }
 
-	/** Returns the pending output byte without consuming it. */
+	/**
+	 * Returns the pending output byte without consuming it.
+	 */
 	public fn PeekOutput() byte { return this.outputByte }
 
-	/** Acknowledges the pending output byte. */
+	/**
+	 * Acknowledges the pending output byte.
+	 */
 	public fn ConsumeOutput() bool
 	{
 		if (!this.outputValid) { return false }

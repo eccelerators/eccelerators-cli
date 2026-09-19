@@ -7,28 +7,26 @@ using Livt.IO
  */
 component CliParser
 {
-	/**
-	 * Maximum number of argument tokens retained after the command token.
-	 */
+	// Maximum retained argument count and command-plus-argument span count.
 	public const MAX_ARGUMENTS: int = 8
-
 	const MAX_TOKENS: int = 9
 
-	line: Ram
-
+	// Only the written prefix below lineLength is readable.
+	line: DistributedRam<byte, CliLineEditor.MAX_LINE_LENGTH>
 	lineLength: byte
 
+	// Parsed spans into the initialized line prefix.
 	tokenStarts: byte[9]
-
 	tokenLengths: byte[9]
-
 	tokenCount: byte
-
 	tooManyArguments: bool
 
+	/**
+	 * Creates a right-sized line store; length metadata guards unwritten cells.
+	 */
 	new()
 	{
-		this.line = new Ram()
+		this.line = new DistributedRam<byte, CliLineEditor.MAX_LINE_LENGTH>()
 	}
 
 	/**
@@ -39,7 +37,7 @@ component CliParser
 		if ((this.lineLength as int) >= CliLineEditor.MAX_LINE_LENGTH) { return false }
 
 		var index: int = this.lineLength as int
-		this.line.WriteByte(index, value)
+		this.line.Write(index, value)
 		this.lineLength = (index + 1) as byte
 		return true
 	}
@@ -71,22 +69,22 @@ component CliParser
 		}
 
 		while (index < (this.lineLength as int)) {
-			var current: byte = this.line.ReadByte(index)
+			var current: byte = this.line.Read(index)
 
 			while (index < (this.lineLength as int) && (current == 0x20 || current == 0x09)) {
 				index = index + 1
 
-				if (index < (this.lineLength as int)) { current = this.line.ReadByte(index) }
+				if (index < (this.lineLength as int)) { current = this.line.Read(index) }
 			}
 
 			if (index < (this.lineLength as int)) {
 				var start: int = index
-				current = this.line.ReadByte(index)
+				current = this.line.Read(index)
 
 				while (index < (this.lineLength as int) && current != 0x20 && current != 0x09) {
 					index = index + 1
 
-					if (index < (this.lineLength as int)) { current = this.line.ReadByte(index) }
+					if (index < (this.lineLength as int)) { current = this.line.Read(index) }
 				}
 
 				if ((this.tokenCount as int) < MAX_TOKENS) {
@@ -125,7 +123,7 @@ component CliParser
 	{
 		if (index < 0 || index >= (this.lineLength as int)) { return 0x00 }
 
-		return this.line.ReadByte(index)
+		return this.line.Read(index)
 	}
 
 	/**
@@ -140,7 +138,7 @@ component CliParser
 		var start: int = this.tokenStarts[0] as int
 
 		for (var i = 0; i < expectedLength; i++) {
-			if (this.line.ReadByte(start + i) != expected[i]) { return false }
+			if (this.line.Read(start + i) != expected[i]) { return false }
 		}
 
 		return true
@@ -179,7 +177,7 @@ component CliParser
 
 		if (offset < 0 || offset >= (this.tokenLengths[tokenIndex] as int)) { return 0x00 }
 
-		return this.line.ReadByte((this.tokenStarts[tokenIndex] as int) + offset)
+		return this.line.Read((this.tokenStarts[tokenIndex] as int) + offset)
 	}
 
 	/**

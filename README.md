@@ -23,6 +23,14 @@ The current package version is `1.1.0` and depends on `Livt.IO 1.2.0-dev`.
 
 All capacities and commands are fixed at synthesis time.
 
+The parser and output queue each use a 64-element `DistributedRam<byte, 64>`
+from Livt.IO. Their length/count metadata guards unwritten cells; neither relies
+on zero-filled startup. CompactCli uses the fixed asynchronous `AsynchronousDistributedRam8x64`
+specialization with explicit combinational port wiring and boolean `writeEnable`. Storage style is a synthesis
+hint, not a guarantee of physical allocation. The current RAM APIs are verified
+against workspace snapshots with `make test-workspace-memory` in the `livt`
+integration repository; dependency version pins remain unchanged.
+
 For resource-constrained applications, `CompactCli` provides the same core
 terminal contract with one 64-byte distributed-RAM line buffer and a
 single-byte backpressured output slot. It deliberately omits tokenized

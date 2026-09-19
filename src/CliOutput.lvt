@@ -7,22 +7,23 @@ using Livt.IO
  */
 component CliOutput
 {
-	/**
-	 * Number of bytes available in the circular output queue.
-	 */
+	// Number of bytes available in the circular output queue.
 	public const BUFFER_SIZE: int = 64
 
-	buffer: Ram
+	// Right-sized scheduled storage; live queue entries are always written first.
+	buffer: DistributedRam<byte, BUFFER_SIZE>
 
+	// Circular queue indices and number of initialized, readable entries.
 	head: byte
-
 	tail: byte
-
 	count: byte
 
+	/**
+	 * Creates the byte store without relying on unwritten cell contents.
+	 */
 	new()
 	{
-		this.buffer = new Ram()
+		this.buffer = new DistributedRam<byte, BUFFER_SIZE>()
 	}
 
 	/**
@@ -67,7 +68,7 @@ component CliOutput
 		if ((this.count as int) >= BUFFER_SIZE) { return false }
 
 		var tailIndex: int = this.tail as int
-		this.buffer.WriteByte(tailIndex, value)
+		this.buffer.Write(tailIndex, value)
 		tailIndex = tailIndex + 1
 
 		if (tailIndex == BUFFER_SIZE) { tailIndex = 0 }
@@ -90,7 +91,7 @@ component CliOutput
 		var nextCount: int = this.count as int
 
 		for (var i = 0; i < length; i++) {
-			this.buffer.WriteByte(tailIndex, data[i])
+			this.buffer.Write(tailIndex, data[i])
 			tailIndex = tailIndex + 1
 
 			if (tailIndex == BUFFER_SIZE) { tailIndex = 0 }
@@ -116,7 +117,7 @@ component CliOutput
 		var nextCount: int = this.count as int
 
 		for (var i = 0; i < length; i++) {
-			this.buffer.WriteByte(tailIndex, data[i])
+			this.buffer.Write(tailIndex, data[i])
 			tailIndex = tailIndex + 1
 
 			if (tailIndex == BUFFER_SIZE) { tailIndex = 0 }
@@ -124,13 +125,13 @@ component CliOutput
 			nextCount = nextCount + 1
 		}
 
-		this.buffer.WriteByte(tailIndex, 0x0D)
+		this.buffer.Write(tailIndex, 0x0D)
 		tailIndex = tailIndex + 1
 
 		if (tailIndex == BUFFER_SIZE) { tailIndex = 0 }
 
 		nextCount = nextCount + 1
-		this.buffer.WriteByte(tailIndex, 0x0A)
+		this.buffer.Write(tailIndex, 0x0A)
 		tailIndex = tailIndex + 1
 
 		if (tailIndex == BUFFER_SIZE) { tailIndex = 0 }
@@ -148,7 +149,7 @@ component CliOutput
 	{
 		if (this.count == 0) { return 0x00 }
 
-		return this.buffer.ReadByte(this.head as int)
+		return this.buffer.Read(this.head as int)
 	}
 
 	/**
