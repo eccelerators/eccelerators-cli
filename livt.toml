@@ -1,11 +1,11 @@
 [project]
 name = "Eccelerators.Cli"
-version = "1.2.0-dev"
+version = "1.2.0"
 path = "src"
 outdir = "out"
 
 [dependencies]
-"Livt.IO" = "1.2.0-dev"
+"Livt.IO" = "1.2.0"
 
 [tests]
 path = "tests"

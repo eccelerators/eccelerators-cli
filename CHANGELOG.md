@@ -1,19 +1,21 @@
 # Changelog
 
-## Unreleased
-
-- Use `Livt.IO 1.2.0-dev` and verify buffered UART byte handoff, transmit
-  backpressure, and loopback input through the current Try-operation API.
-- Register the compact echo regression and correct transport integration docs.
-
-- Add `CompactCli`, a resource-oriented free-text terminal with a distributed
-  64-byte line buffer and backpressured streaming output for constrained FPGA
-  applications.
-
 All notable changes to this package are documented here.
 
-## Unreleased
+## 1.2.0
 
+- Depend on `Livt.IO 1.2.0`.
+- Migrate parser and output buffers to `DistributedRam<byte, 64>` and compact
+  terminal storage to `AsynchronousDistributedRam8x64` with explicit port wiring.
+- Preserve write-before-read semantics without requiring zero-filled memory.
+- Verify buffered UART byte handoff, transmit backpressure and loopback input
+  through the current Try-operation API.
+- Register the compact echo regression and update transport integration examples.
+
+## 1.1.0 - 2026-08-30
+
+- Add `CompactCli`, a free-text terminal with a distributed 64-byte line buffer,
+  optional echo and backpressured streaming output for constrained FPGA applications.
 - Add opt-in free-text lines and complete raw-line byte access while preserving
   strict excessive-argument rejection by default.
 

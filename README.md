@@ -5,7 +5,7 @@ applications written in Livt. It provides bounded terminal input, editing,
 parsing, prompts, atomic output writes, and explicit backpressure. Applications
 remain responsible for the physical byte transport and static command dispatch.
 
-The current package version is `1.1.0` and depends on `Livt.IO 1.2.0-dev`.
+The current package version is `1.2.0` and depends on `Livt.IO 1.2.0`.
 
 ## Features
 
@@ -26,10 +26,8 @@ All capacities and commands are fixed at synthesis time.
 The parser and output queue each use a 64-element `DistributedRam<byte, 64>`
 from Livt.IO. Their length/count metadata guards unwritten cells; neither relies
 on zero-filled startup. CompactCli uses the fixed asynchronous `AsynchronousDistributedRam8x64`
-specialization with explicit combinational port wiring and boolean `writeEnable`. Storage style is a synthesis
-hint, not a guarantee of physical allocation. The current RAM APIs are verified
-against workspace snapshots with `make test-workspace-memory` in the `livt`
-integration repository; dependency version pins remain unchanged.
+specialization with explicit combinational port wiring and boolean `writeEnable`.
+Storage style is a synthesis hint, not a guarantee of physical allocation.
 
 For resource-constrained applications, `CompactCli` provides the same core
 terminal contract with one 64-byte distributed-RAM line buffer and a
@@ -43,7 +41,7 @@ Add the package to a Livt project with:
 
 ```toml
 [dependencies]
-"Eccelerators.Cli" = "1.1.0"
+"Eccelerators.Cli" = "1.2.0"
 ```
 
 Import its public API with:
@@ -60,8 +58,6 @@ using Eccelerators.Cli
 - `CliOutput` queues echo, responses, errors, and prompts atomically.
 - `CompactCli` provides bounded free-text input and streaming output with a
   smaller hardware footprint.
-
-See [DESIGN.md](DESIGN.md) for ownership, data flow, and timing contracts.
 
 ## Application integration
 
@@ -96,7 +92,7 @@ The transport must not discard an input byte when `CanAcceptByte()` is false.
 Likewise, call `ConsumeOutput()` only after the transport accepted the byte from
 `PeekOutput()`. These two rules preserve data during backpressure.
 
-With `Livt.IO 1.2.0-dev`, use `BufferedUart` or `RtsCtsBufferedUart` for the
+With `Livt.IO 1.2.0`, use `BufferedUart` or `RtsCtsBufferedUart` for the
 scheduled byte transport. `Uart` is the low-level signal interface. An application
 that owns `cli: Cli` and a buffered `uart` can perform the handoff as follows:
 
@@ -124,8 +120,8 @@ use RTS/CTS and a cooperating peer when input must pause during command handling
 
 ### Compact integration
 
-`CompactCli` is suited to applications such as the TinyStories showcase where
-every non-command line is application data. A transport process accepts bytes
+`CompactCli` is suited to applications where every non-command line is
+application data. A transport process accepts bytes
 when `CanAcceptByte()` is true, waits for `HasLine()`, and calls `CompleteLine()`
 after dispatch. CR, LF, CRLF, backspace/delete, printable input, and overflow
 recovery are handled internally. `EnableEcho()` adds backpressured printable,
@@ -224,7 +220,7 @@ The test suite covers complete FIFO ordering and wraparound, atomic writes, line
 endings, editing, overflow recovery, parsing, argument limits, prompts, enabled
 and disabled echo, input backpressure, command completion, compact exact-command
 matching, compact echo and streaming-output backpressure, and buffered UART
-acceptance/retry plus serial loopback reception with `Livt.IO 1.2.0-dev`.
+acceptance/retry plus serial loopback reception with `Livt.IO 1.2.0`.
 
 ## License
 
